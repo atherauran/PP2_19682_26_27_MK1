@@ -8,6 +8,7 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 
 import static org.firstinspires.ftc.teamcode.constants.PanelConstants.*;
 
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.teamcode.constants.FieldPose;
@@ -20,6 +21,8 @@ public class VelocityTest extends LinearOpMode {
     JoinedTelemetry joinedTele;
     double distance;
     boolean shootOn = false;
+    int turretTargetHeading = 0;
+    int turretCorrection = 0;
 
     double previousTarget = Double.NaN;
     double inBandSince = Double.NaN, dropTime = Double.NaN, lastRecovery = Double.NaN;
@@ -64,8 +67,13 @@ public class VelocityTest extends LinearOpMode {
             robot.drivetrain.drive(gamepad1, 1);
             Pose2D current = robot.drivetrain.getPosition();
             Pose2D target = TargetSelector.getTarget(current.getY(DistanceUnit.INCH), true);
-            distance = Math.hypot(target.getY(DistanceUnit.INCH) - current.getY(DistanceUnit.INCH),
-                    target.getX(DistanceUnit.INCH) - current.getX(DistanceUnit.INCH));
+            double dx = target.getX(DistanceUnit.INCH) - current.getX(DistanceUnit.INCH);
+            double dy = target.getY(DistanceUnit.INCH) - current.getY(DistanceUnit.INCH);
+            distance = Math.hypot(dx, dy);
+
+            // 炮台相对车头的瞄准角；超过 ±175° 转不到，就回正。
+            double aimAngle = Math.toDegrees(Math.atan2(dy, dx)) - current.getHeading(AngleUnit.DEGREES);
+            turretTargetHeading = Math.abs(aimAngle) <= 175 ? (int) aimAngle : 0;
 
             if (gamepad1.dpadUpWasPressed()) VELOCITY += 20;
             if (gamepad1.dpadDownWasPressed()) VELOCITY -= 20;
@@ -77,12 +85,16 @@ public class VelocityTest extends LinearOpMode {
             if (gamepad1.aWasPressed()) POSITION -= 0.01;
             POSITION = Math.max(0, Math.min(POSITION, 1));
 
+            if (gamepad1.xWasPressed()) turretCorrection -= 2;
+            if (gamepad1.bWasPressed()) turretCorrection += 2;
+
             if (gamepad1.right_trigger > 0) robot.intake.intakeFire(FIRE_POWER);
             else robot.intake.intakeStop();
 
             if (gamepad1.rightBumperWasPressed()) {
                 shootOn = true;
                 robot.intake.gateOpen();
+                robot.shooter.turretToDegree(turretTargetHeading + turretCorrection);
             }
             if (gamepad1.leftBumperWasPressed()) {
                 robot.intake.gateClose();
@@ -96,6 +108,7 @@ public class VelocityTest extends LinearOpMode {
 
             measureRecovery(VELOCITY, Math.abs(robot.shooter.flywheelSpeed));
             joinedTele.addData("distance", distance);
+            joinedTele.addData("turret target / correction (deg)", "%d / %d", turretTargetHeading, turretCorrection);
             joinedTele.addData("intakePower", FIRE_POWER);
             joinedTele.addData("target velocity", VELOCITY);
             joinedTele.addData("current velocity", shootOn && VELOCITY != 0
